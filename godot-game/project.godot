@@ -20,5 +20,6 @@ _global_script_class_icons={
 
 [application]
 
-config/name="SideScrollerFighter"
+config/name="像素斗士 Pixel Fighter"
 run/main_scene="res://scenes/Main.tscn"
+config/icon="res://icon.png"

@@ -62,6 +62,47 @@ var selected_stage := 1
 
 func _ready() -> void:
     randomize()
+    _write_startup_log()
+
+func _write_startup_log() -> void:
+    var log_text = ""
+    log_text += "=====================================\n"
+    log_text += "像素斗士 Pixel Fighter v1.0 - 启动日志\n"
+    log_text += "=====================================\n\n"
+    log_text += "启动时间：" + str(Time.get_datetime_string_from_system()) + "\n"
+    log_text += "Godot 版本：" + str(Engine.godot_version_string()) + "\n\n"
+    
+    log_text += "文件检查:\n"
+    var exe_path = OS.get_executable_path()
+    log_text += "- exe 路径：" + exe_path + "\n"
+    log_text += "- 运行目录：" + exe_path.get_base_dir() + "\n\n"
+    
+    var pck_path = exe_path.get_base_dir() + "/PixelFighter_v1.0.pck"
+    if FileAccess.file_exists(pck_path):
+        log_text += "✓ PCK 文件存在：" + pck_path + " (" + str(FileAccess.get_file_as_bytes(pck_path).size() / 1024) + " KB)\n"
+    else:
+        log_text += "✗ PCK 文件不存在：" + pck_path + "\n"
+        log_text += "  错误：请确保 .exe 和 .pck 文件在同一文件夹内！\n"
+    log_text += "\n"
+    
+    log_text += "系统信息:\n"
+    log_text += "- 系统：" + str(OS.get_name()) + " " + str(OS.get_version()) + "\n"
+    log_text += "- 屏幕：" + str(DisplayServer.screen_get_size()) + "\n"
+    log_text += "- 显卡：" + str(RenderingServer.get_video_adapter_name()) + "\n\n"
+    
+    log_text += "=====================================\n"
+    
+    var log_file = exe_path.get_base_dir() + "/game_log.txt"
+    var file = FileAccess.open(log_file, FileAccess.WRITE)
+    if file:
+        file.store_string(log_text)
+        file.close()
+        print("游戏日志已写入：", log_file)
+    else:
+        print("无法写入日志：", log_file)
+        print("日志内容：\n", log_text)
+
+
     pause_mode = Node.PAUSE_MODE_PROCESS
     KeybindManager.apply_from_file("res://keybinds.cfg")
     
