@@ -23,6 +23,10 @@ var weapon_index := 0
 var current_weapon := "sword"
 var attack_upgrade_level := 0
 var hp_upgrade_level := 0
+var speed_upgrade_level := 0
+var crit_upgrade_level := 0
+var base_attack_cooldown := 0.16
+var base_combo_reset_time := 0.55
 
 var hp := 5
 var velocity := Vector2.ZERO
@@ -89,7 +93,10 @@ func _attack() -> void:
     attack_timer = attack_cooldown
     combo_step = clamp(combo_step + 1, 1, combo_damage.size())
     combo_timer = combo_reset_time
-    current_attack_damage = int(round(float(combo_damage[combo_step - 1]) * damage_multiplier()))
+    var base_damage = float(combo_damage[combo_step - 1]) * damage_multiplier()
+    if _is_crit_attack():
+        base_damage *= crit_multiplier()
+    current_attack_damage = int(max(1, round(base_damage)))
     attack_area.monitoring = true
     yield(get_tree().create_timer(attack_active_time), "timeout")
     attack_area.monitoring = false
@@ -133,14 +140,20 @@ func _apply_weapon(name: String) -> void:
         return
 
     var profile = weapon_profiles[name]
-    attack_cooldown = float(profile["attack_cooldown"])
-    combo_reset_time = float(profile["combo_reset_time"])
+    base_attack_cooldown = float(profile["attack_cooldown"])
+    base_combo_reset_time = float(profile["combo_reset_time"])
+    attack_cooldown = base_attack_cooldown
+    combo_reset_time = base_combo_reset_time
     attack_active_time = float(profile["attack_active_time"])
     combo_damage = profile["combo_damage"]
+    _apply_speed_upgrade()
 
-func set_upgrade_levels(hp_level: int, attack_level: int) -> void:
+func set_upgrade_levels(hp_level: int, attack_level: int, speed_level := 0, crit_level := 0) -> void:
     hp_upgrade_level = max(0, hp_level)
     attack_upgrade_level = max(0, attack_level)
+    speed_upgrade_level = max(0, int(speed_level))
+    crit_upgrade_level = max(0, int(crit_level))
+    _apply_speed_upgrade()
 
     var old_max = hp
     var new_max = _effective_max_hp()
@@ -154,6 +167,18 @@ func heal_full() -> void:
 
 func damage_multiplier() -> float:
     return 1.0 + float(attack_upgrade_level) * 0.12
+
+func crit_multiplier() -> float:
+    return 1.6 + float(crit_upgrade_level) * 0.05
+
+func _is_crit_attack() -> bool:
+    var chance = clamp(0.05 * float(crit_upgrade_level), 0.0, 0.45)
+    return randf() < chance
+
+func _apply_speed_upgrade() -> void:
+    var speed_factor = max(0.55, 1.0 - float(speed_upgrade_level) * 0.06)
+    attack_cooldown = base_attack_cooldown * speed_factor
+    combo_reset_time = base_combo_reset_time * max(0.6, 1.0 - float(speed_upgrade_level) * 0.04)
 
 func _effective_max_hp() -> int:
     return max_hp + hp_upgrade_level

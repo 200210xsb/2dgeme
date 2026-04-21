@@ -34,10 +34,11 @@ var score := 0
 var gold := 0
 var boss_active := true
 
-var upgrades := {"hp": 0, "attack": 0}
+var upgrades := {"hp": 0, "attack": 0, "speed": 0, "crit": 0}
 
 var current_stage_index := 1
 var max_unlocked_stage_index := 1
+var max_cleared_stage_index := 0
 var stage_cfg := {}
 
 var selected_chapter := 1
@@ -51,8 +52,18 @@ func _ready() -> void:
     var save = SaveData.load_progress()
     current_stage_index = int(save["current_stage_index"])
     max_unlocked_stage_index = int(save["max_unlocked_stage_index"])
+    max_cleared_stage_index = int(save["max_cleared_stage_index"])
     gold = int(save["gold"])
     upgrades = save["upgrades"]
+
+    if not upgrades.has("hp"):
+        upgrades["hp"] = 0
+    if not upgrades.has("attack"):
+        upgrades["attack"] = 0
+    if not upgrades.has("speed"):
+        upgrades["speed"] = 0
+    if not upgrades.has("crit"):
+        upgrades["crit"] = 0
 
     stage_cfg = CampaignData.get_stage(current_stage_index)
     selected_chapter = int(stage_cfg["chapter_id"])
@@ -61,7 +72,12 @@ func _ready() -> void:
     _apply_stage_config(stage_cfg)
     _wire_signals()
 
-    player.set_upgrade_levels(int(upgrades["hp"]), int(upgrades["attack"]))
+    player.set_upgrade_levels(
+        int(upgrades["hp"]),
+        int(upgrades["attack"]),
+        int(upgrades["speed"]),
+        int(upgrades["crit"])
+    )
     player.heal_full()
 
     _spawn_stage_minions()
@@ -71,7 +87,7 @@ func _ready() -> void:
     _set_gold(gold)
 
     _refresh_stage_ui()
-    info_text.text = "Enter Start  Arrow Select  Q Weapon  N Next  R Restart"
+    info_text.text = "Enter Start  Arrow Select  Q Weapon  1-5 Shop  N Next  R Restart"
     story_text.text = CampaignData.story_background() + "\n" + CampaignData.stage_intro_text(stage_cfg)
 
     _set_combat_enabled(false)
@@ -162,6 +178,10 @@ func _handle_shop_input() -> void:
         _buy_upgrade("attack")
     elif Input.is_action_just_pressed("shop_buy_heal"):
         _buy_heal()
+    elif Input.is_action_just_pressed("shop_buy_speed"):
+        _buy_upgrade("speed")
+    elif Input.is_action_just_pressed("shop_buy_crit"):
+        _buy_upgrade("crit")
 
     if Input.is_action_just_pressed("next_level"):
         shop_open = false
@@ -211,6 +231,7 @@ func _on_enemy_died(drop_position := Vector2.ZERO, score_value := 0) -> void:
 
         var total = CampaignData.total_stages()
         var next_idx = min(current_stage_index + 1, total)
+        max_cleared_stage_index = max(max_cleared_stage_index, current_stage_index)
         max_unlocked_stage_index = max(max_unlocked_stage_index, next_idx)
         _save_progress()
 
@@ -349,31 +370,67 @@ func _refresh_start_panel_text() -> void:
     var picked_index = CampaignData.stage_index_from_chapter_stage(selected_chapter, selected_stage)
     var locked = picked_index > max_unlocked_stage_index
     var lock_text = "Locked" if locked else "Unlocked"
+    var boss_name = "None"
+    if bool(picked["boss_enabled"]):
+        boss_name = str(picked["boss"])
 
-    start_text.text = "Select Chapter/Stage\nChapter %d - Stage %d (%s)\n%s\nArrow Select, Enter Confirm" % [
+    start_text.text = "Select Chapter/Stage\nChapter %d - Stage %d (%s)\n%s\nTheme: %s\nBoss: %s\n%s\nArrow Select, Enter Confirm" % [
         selected_chapter,
         selected_stage,
         lock_text,
-        str(picked["stage_name"])
+        str(picked["stage_name"]),
+        str(picked["theme"]),
+        boss_name,
+        _build_campaign_overview_text()
     ]
+
+func _build_campaign_overview_text() -> String:
+    var lines = []
+    lines.append("Map C:Cleared U:Unlocked L:Locked")
+
+    for chapter_id in range(1, CampaignData.chapter_count() + 1):
+        var stage_total = CampaignData.chapter_stage_count(chapter_id)
+        var line = "Ch%02d " % chapter_id
+        for stage_id in range(1, stage_total + 1):
+            var idx = CampaignData.stage_index_from_chapter_stage(chapter_id, stage_id)
+            var marker = "L"
+            if idx <= max_cleared_stage_index:
+                marker = "C"
+            elif idx <= max_unlocked_stage_index:
+                marker = "U"
+
+            if chapter_id == selected_chapter and stage_id == selected_stage:
+                line += "(%s)" % marker
+            else:
+                line += "[%s]" % marker
+        lines.append(line)
+
+    return PoolStringArray(lines).join("\n")
 
 func _open_shop_panel() -> void:
     shop_open = true
     shop_panel.visible = true
+    info_text.text = "Shop Open - Press 1/2/3/4/5, N Next Stage"
     _refresh_shop_text()
 
 func _refresh_shop_text() -> void:
     var hp_cost = _upgrade_cost("hp")
     var atk_cost = _upgrade_cost("attack")
+    var spd_cost = _upgrade_cost("speed")
+    var crit_cost = _upgrade_cost("crit")
     var heal_cost = 25
 
-    shop_text.text = "Shop\nGold: %d\n1 HP Upgrade Lv.%d (Cost %d)\n2 Attack Upgrade Lv.%d (Cost %d)\n3 Full Heal (Cost %d)\nN Next Stage" % [
+    shop_text.text = "Shop\nGold: %d\n1 HP Upgrade Lv.%d (Cost %d)\n2 Attack Upgrade Lv.%d (Cost %d)\n3 Full Heal (Cost %d)\n4 Speed Upgrade Lv.%d (Cost %d)\n5 Crit Upgrade Lv.%d (Cost %d)\nN Next Stage" % [
         gold,
         int(upgrades["hp"]),
         hp_cost,
         int(upgrades["attack"]),
         atk_cost,
-        heal_cost
+        heal_cost,
+        int(upgrades["speed"]),
+        spd_cost,
+        int(upgrades["crit"]),
+        crit_cost
     ]
 
 func _buy_upgrade(kind: String) -> void:
@@ -384,7 +441,12 @@ func _buy_upgrade(kind: String) -> void:
 
     gold -= cost
     upgrades[kind] = int(upgrades[kind]) + 1
-    player.set_upgrade_levels(int(upgrades["hp"]), int(upgrades["attack"]))
+    player.set_upgrade_levels(
+        int(upgrades["hp"]),
+        int(upgrades["attack"]),
+        int(upgrades["speed"]),
+        int(upgrades["crit"])
+    )
     _set_gold(gold)
     _refresh_shop_text()
     _save_progress()
@@ -405,7 +467,13 @@ func _upgrade_cost(kind: String) -> int:
     var lv = int(upgrades[kind])
     if kind == "hp":
         return 40 + lv * 20
-    return 50 + lv * 25
+    if kind == "attack":
+        return 50 + lv * 25
+    if kind == "speed":
+        return 60 + lv * 28
+    if kind == "crit":
+        return 70 + lv * 34
+    return 999
 
 func _stage_reward_gold() -> int:
     var base = int(stage_cfg["enemy_count"]) * 10
@@ -418,6 +486,7 @@ func _save_progress() -> void:
     SaveData.save_progress({
         "current_stage_index": current_stage_index,
         "max_unlocked_stage_index": max_unlocked_stage_index,
+        "max_cleared_stage_index": max_cleared_stage_index,
         "gold": gold,
         "upgrades": upgrades
     })

@@ -133,3 +133,11 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
   - 战役与剧情数据独立在 CampaignData.gd，便于后续扩展 10 关多场景
   - Player.gd 内置武器配置表并通过 switch_weapon 动作切换
   - Boss.gd 通过 phase_changed/request_spawn_minion/aoe_cast 信号与 Game.gd 解耦
+
+[Godot3 文本拼接兼容性]
+- Date: 2026-04-21
+- Context: Agent 在实现章节战线总览文本时发现
+- Category: 代码模式
+- Instructions:
+  - Godot3 中字符串对象不支持直接调用 join，需使用 PoolStringArray(lines).join("\n")
+  - 长文本 UI 组装建议先累积数组再统一 join，便于维护和兼容旧版本脚本运行时

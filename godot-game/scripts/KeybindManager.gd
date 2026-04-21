@@ -1,6 +1,20 @@
 extends Reference
 
-const ACTIONS := ["ui_left", "ui_right", "ui_up", "attack", "switch_weapon", "next_level", "restart"]
+const ACTIONS := [
+    "ui_left",
+    "ui_right",
+    "ui_up",
+    "ui_down",
+    "attack",
+    "switch_weapon",
+    "next_level",
+    "restart",
+    "shop_buy_hp",
+    "shop_buy_attack",
+    "shop_buy_heal",
+    "shop_buy_speed",
+    "shop_buy_crit"
+]
 
 static func apply_from_file(config_path: String) -> void:
     var cfg := ConfigFile.new()
@@ -15,6 +29,9 @@ static func apply_from_file(config_path: String) -> void:
         var scancode := OS.find_scancode_from_string(key_name)
         if scancode == 0:
             continue
+
+        if not InputMap.has_action(action):
+            InputMap.add_action(action)
 
         InputMap.action_erase_events(action)
         var ev := InputEventKey.new()
