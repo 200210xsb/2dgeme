@@ -7,6 +7,8 @@ const ACTIONS := [
     "ui_down",
     "attack",
     "switch_weapon",
+    "block",
+    "dash",
     "next_level",
     "restart",
     "shop_buy_hp",

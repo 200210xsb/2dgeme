@@ -1,51 +1,65 @@
-# Dual-Platform 2D Side-Scroller Fighter (Unity)
+# 2D 横版动作游戏 - 完整战役版
 
-This repository provides a starter implementation plan and core scripts for a 2D side-scroller action game that targets both Windows (.exe) and Android.
+本项目包含一个完整的 2D 横版打击游戏，使用 Godot 3.2.3 引擎开发，包含 10 章 28 个关卡的完整战役模式。
 
-## Tech Stack
+## 游戏特色
 
-- Unity 2022 LTS
-- C#
-- Built-in 2D physics and animation state machine
+- 流畅的移动和跳跃
+- 三段连击战斗系统
+- 3 种可切换武器（剑/矛/锤）
+- Boss 战（两阶段、范围技、召唤小怪）
+- 10 章 28 关卡战役
+- 商店升级系统
+- 进度存档
 
-## MVP Scope
+## 快速测试
 
-- Player movement: run, jump, face direction
-- Combo attack chain (3-hit)
-- Enemy behavior: patrol, chase, attack
-- Health and damage system
-- Touch input bridge for Android and keyboard fallback for desktop
+### Windows 版本
+1. 进入 `godot-game/Builds/Windows/` 目录
+2. 双击运行 `SideScrollerFighter.exe`
+3. 使用默认键位进行游戏
 
-## Suggested Project Structure
+### 默认控制
+| 按键 | 功能 |
+|------|------|
+| A/D | 左右移动 |
+| W | 跳跃 |
+| J | 攻击 |
+| Q | 切换武器 |
+| R | 重开 |
+| 1-5 | 商店购买 |
+| N | 下一关 |
 
-- `docs/plans/2026-04-21-dual-platform-2d-fighter-design.md`
-- `unity-scripts/PlayerController2D.cs`
-- `unity-scripts/PlayerCombat.cs`
-- `unity-scripts/EnemyController2D.cs`
-- `unity-scripts/Health.cs`
-- `unity-scripts/TouchInputBridge.cs`
+## 项目结构
 
-## Setup Steps
+- `godot-game/` - Godot 游戏项目（可游玩版本）
+  - `scripts/` - 游戏脚本
+  - `scenes/` - 游戏场景
+  - `Builds/Windows/` - Windows 可执行文件
+- `docs/plans/` - 设计文档
+- `unity-scripts/` - Unity 版本核心脚本（参考用）
 
-1. Create a new Unity 2D project.
-2. Add a player with `Rigidbody2D`, `Collider2D`, animator, and `Health`.
-3. Add enemy prefabs with `Rigidbody2D`, `Collider2D`, `EnemyController2D`, and `Health`.
-4. Configure ground and player layers.
-5. Add mobile UI buttons and bind them to `TouchInputBridge` methods.
+## 详细内容
 
-## Build
+查看 `godot-game/README_FINAL.md` 了解：
+- 完整操作说明
+- 战役章节列表
+- 游戏机制详解
+- 升级系统说明
 
-Windows first test guide: `docs/plans/2026-04-21-windows-exe-test-guide.md`
+## 构建说明
 
-### Windows (.exe)
+### Windows 导出
+```bash
+cd godot-game
+xvfb-run -a godot3 --path . --export "Windows Desktop" Builds/Windows/SideScrollerFighter.exe
+```
 
-1. Open `File > Build Settings`.
-2. Select `PC, Mac & Linux Standalone` and target `Windows`.
-3. Build to output `.exe`.
+### 键位自定义
+编辑 `godot-game/keybinds.cfg` 文件修改按键。
 
-### Android
+## 技术栈
 
-1. Install Android Build Support in Unity Hub.
-2. Switch platform to `Android` in `Build Settings`.
-3. Configure package name and minimum SDK in `Player Settings`.
-4. Build APK or AAB.
+- 引擎：Godot 3.2.3
+- 语言：GDScript
+- 目标平台：Windows

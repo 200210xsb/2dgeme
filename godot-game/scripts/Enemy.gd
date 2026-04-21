@@ -25,14 +25,31 @@ onready var player := get_node_or_null(player_path)
 signal died(drop_position, score_value)
 signal damaged
 
+var status_effects = null
+
 func _ready() -> void:
     hp = max_hp
     if player == null:
         player = get_parent().get_node_or_null("Player")
+    
+    # 初始化状态效果
+    status_effects = preload("res://scripts/StatusEffects.gd").new()
+    add_child(status_effects)
 
 func _physics_process(delta: float) -> void:
     if hit_stun_timer > 0.0:
         hit_stun_timer -= delta
+    
+    # 处理状态效果
+    if status_effects != null:
+        var effect_damage = status_effects.process_effects(delta)
+        if effect_damage > 0:
+            hp -= effect_damage
+            if hp <= 0:
+                emit_signal("died", global_position, 10)
+                queue_free()
+                return
+    
     if attack_timer > 0.0:
         attack_timer -= delta
 
@@ -75,6 +92,20 @@ func take_damage(amount: int, source_position := Vector2.ZERO, knockback := 220.
         if kb_dir == 0:
             kb_dir = 1
         velocity.x = kb_dir * knockback
+
+    # 受击特效
+    var game = get_parent()
+    if game != null:
+        var hit_effects = game.get_node_or_null("HitEffects")
+        if hit_effects != null and hit_effects.has_method("spawn_hit_effect"):
+            var hit_dir = 0.0
+            if source_position != Vector2.ZERO:
+                hit_dir = atan2(global_position.y - source_position.y, global_position.x - source_position.x)
+            hit_effects.spawn_hit_effect("blood", global_position, hit_dir)
+        
+        var hit_stop_manager = game.get_node_or_null("HitStopManager")
+        if hit_stop_manager != null and hit_stop_manager.has_method("trigger_hit_stop"):
+            hit_stop_manager.trigger_hit_stop(0.04)
 
     modulate = Color(1.0, 0.55, 0.55, 1.0)
     yield(get_tree().create_timer(FLASH_TIME), "timeout")

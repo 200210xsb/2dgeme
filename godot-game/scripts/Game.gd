@@ -19,11 +19,24 @@ onready var result_panel := $UI/ResultPanel
 onready var result_text := $UI/ResultPanel/ResultText
 onready var shop_panel := $UI/ShopPanel
 onready var shop_text := $UI/ShopPanel/ShopText
+onready var combo_label := $UI/ComboLabel
+onready var combo_count_label := $UI/ComboCountLabel
 
 const KeybindManager = preload("res://scripts/KeybindManager.gd")
 const CampaignData = preload("res://scripts/CampaignData.gd")
 const SaveData = preload("res://scripts/SaveData.gd")
 const DropCoin = preload("res://scripts/DropCoin.gd")
+const AchievementManager = preload("res://scripts/AchievementManager.gd")
+const DifficultyManager = preload("res://scripts/DifficultyManager.gd")
+const ComboSystem = preload("res://scripts/ComboSystem.gd")
+
+var combo_system = null
+
+var achievement_manager = null
+var difficulty_manager = null
+var combo_system = null
+var level_start_time := 0
+var combo_tracker := 0
 
 var game_started := false
 var game_over := false
@@ -41,6 +54,9 @@ var max_unlocked_stage_index := 1
 var max_cleared_stage_index := 0
 var stage_cfg := {}
 
+var trap_spawn_timer := 0.0
+var trap_spawn_interval := 8.0  # 每 8 秒生成一个陷阱
+
 var selected_chapter := 1
 var selected_stage := 1
 
@@ -48,6 +64,29 @@ func _ready() -> void:
     randomize()
     pause_mode = Node.PAUSE_MODE_PROCESS
     KeybindManager.apply_from_file("res://keybinds.cfg")
+    
+    # 初始化成就和难度系统
+    achievement_manager = AchievementManager.new()
+    add_child(achievement_manager)
+    achievement_manager.connect("achievement_unlocked", self, "_on_achievement_unlocked")
+    
+    difficulty_manager = DifficultyManager.new()
+    add_child(difficulty_manager)
+    var diff = difficulty_manager.load_difficulty()
+    difficulty_manager.set_difficulty(diff)
+    
+    # 初始化 InputBuffer 并连接到 Player
+    var input_buffer = get_node_or_null("InputBuffer")
+    if input_buffer != null and player != null:
+        player.input_buffer_ref = input_buffer
+    
+    # 初始化 ComboSystem
+    combo_system = ComboSystem.new()
+    add_child(combo_system)
+    if combo_label != null and combo_count_label != null:
+        combo_system.ui_combo_label = combo_label
+        combo_system.ui_combo_count_label = combo_count_label
+    player.connect("damaged", self, "_on_player_damaged_combo")
 
     var save = SaveData.load_progress()
     current_stage_index = int(save["current_stage_index"])
@@ -87,7 +126,7 @@ func _ready() -> void:
     _set_gold(gold)
 
     _refresh_stage_ui()
-    info_text.text = "Enter Start  Arrow Select  Q Weapon  1-5 Shop  N Next  R Restart"
+    info_text.text = "Enter Start  Arrow Select  Q Weapon  K Block  SPACE Dash  1-5 Shop  N Next  R Restart"
     story_text.text = CampaignData.story_background() + "\n" + CampaignData.stage_intro_text(stage_cfg)
 
     _set_combat_enabled(false)
@@ -114,8 +153,9 @@ func _process(_delta: float) -> void:
 
         game_started = true
         start_panel.visible = false
-        info_text.text = "Fight  Q Weapon  N Next  R Restart"
+        info_text.text = "Fight  J Attack  Q Switch Weapon  K Block  SPACE Dash  N Next  R Restart"
         _set_combat_enabled(true)
+        level_start_time = OS.get_ticks_msec()
 
     if shop_open:
         _handle_shop_input()
@@ -125,6 +165,10 @@ func _process(_delta: float) -> void:
 
     if Input.is_action_just_pressed("restart"):
         get_tree().reload_current_scene()
+    
+    # 生成陷阱
+    if game_started and not game_over and not stage_cleared:
+        _update_trap_spawning(_delta)
 
 func _wire_signals() -> void:
     player.get_node("AttackArea").connect("body_entered", self, "_on_player_attack_area_body_entered")
@@ -193,8 +237,40 @@ func _on_player_attack_area_body_entered(body: Node) -> void:
         return
 
     if body.has_method("take_damage") and body != player:
+        var hit_position = body.global_position
         body.take_damage(player.current_attack_damage, player.global_position, 250.0)
+        
+        # 暴击或连击时触发状态效果（20% 概率）
+        if randf() < 0.2 and body.has_node("StatusEffects"):
+            var effect_types = [1, 2, 4]  # BURN, FREEZE, BLEED
+            var effect = effect_types[randi() % effect_types.size()]
+            body.status_effects.apply_effect(effect, 2.0)
+        
+        # Combo 计数
+        if combo_system != null:
+            combo_system.add_hit()
+        
+        # 命中停顿
+        var hit_stop_manager = get_node_or_null("HitStopManager")
+        if hit_stop_manager != null and hit_stop_manager.has_method("trigger_hit_stop"):
+            hit_stop_manager.trigger_hit_stop(0.08)
+        
+        # 打击特效
+        var hit_effects = get_node_or_null("HitEffects")
+        if hit_effects != null and hit_effects.has_method("spawn_hit_effect"):
+            var effect_type = ["spark", "spark", "spark", "slash"].pick_random()
+            var direction = 0.0 if player.global_position.x <= body.global_position.x else PI
+            hit_effects.spawn_hit_effect(effect_type, hit_position, direction)
+        
         _on_any_damage(0.12)
+    
+    # 更新玩家攻击特效（按武器类型）
+    if player != null and player.attack_effect != null and player.attack_area.monitoring:
+        player.attack_effect.play(player.global_position + Vector2(36 * player.face_dir, 0), player.face_dir, player.current_weapon)
+
+func _on_player_damaged_combo() -> void:
+    if combo_system != null:
+        combo_system.reset_combo()
 
 func _on_player_hp_changed(current_hp: int, max_hp: int) -> void:
     var ratio := float(current_hp) / float(max_hp)
@@ -210,6 +286,12 @@ func _on_player_died() -> void:
     _set_combat_enabled(false)
 
 func _on_enemy_died(drop_position := Vector2.ZERO, score_value := 0) -> void:
+    # 成就追踪
+    if score_value == 10 and achievement_manager != null:  # 普通敌人
+        achievement_manager.unlock_first_blood()
+    if score_value >= 60:  # Boss
+        achievement_manager.increment_boss_kill()
+    
     _spawn_drop(drop_position, score_value)
     enemies_alive = max(enemies_alive - 1, 0)
     if not game_over and enemies_alive == 0:
@@ -221,11 +303,23 @@ func _on_enemy_died(drop_position := Vector2.ZERO, score_value := 0) -> void:
         var chapter_stage_count = CampaignData.chapter_stage_count(int(stage_cfg["chapter_id"]))
         if int(stage_cfg["stage_id"]) >= chapter_stage_count:
             clear_text += "\n" + CampaignData.chapter_clear_text(int(stage_cfg["chapter_id"]))
+            # 成就：章节完成
+            if achievement_manager != null:
+                achievement_manager.unlock_chapter(int(stage_cfg["chapter_id"]))
 
         var stage_reward = _stage_reward_gold()
         _set_gold(gold + stage_reward)
 
         result_text.text = "Stage Cleared  Score: %d" % score
+        
+        # 速通检测
+        var level_time = 0
+        if level_start_time > 0:
+            level_time = int((OS.get_ticks_msec() - level_start_time) / 1000.0)
+            clear_text += "\nTime: %d.%ds" % [level_time / 1000, (level_time % 1000) / 100]
+            if achievement_manager != null:
+                achievement_manager.check_speed_run(level_time)
+        
         info_text.text = clear_text + "\nReward Gold: %d" % stage_reward
         _set_combat_enabled(false)
 
@@ -295,13 +389,32 @@ func _spawn_minion_at(world_position: Vector2) -> void:
     minion.patrol_left_x = world_position.x - 90
     minion.patrol_right_x = world_position.x + 90
     minion.player_path = NodePath("../Player")
-
+    
+    # 设置精英类型（30% 概率）
+    var is_elite = randf() < 0.3
+    var enemy_type = 0
+    
+    if is_elite:
+        # 随机精英类型
+        enemy_type = [1, 2, 3].pick_random()
+        minion.move_speed += 20 if enemy_type == 1 else 0  # 快速型
+        minion.max_hp += 3 if enemy_type == 2 else 0  # 坦克型
+    
     var col = CollisionShape2D.new()
     var rect = RectangleShape2D.new()
     rect.extents = Vector2(16, 24)
     col.shape = rect
     minion.add_child(col)
-
+    
+    # 添加精灵
+    var sprite = Sprite.new()
+    var sprite_script = preload("res://scripts/EnemySprite.gd")
+    sprite.set_script(sprite_script)
+    sprite.enemy_type = enemy_type
+    sprite.color = _get_enemy_color_by_type(enemy_type)
+    sprite.pixel_size = 4
+    minion.add_child(sprite)
+    
     add_child(minion)
     enemies_alive += 1
     if minion.has_signal("died"):
@@ -309,6 +422,13 @@ func _spawn_minion_at(world_position: Vector2) -> void:
     if minion.has_signal("damaged"):
         minion.connect("damaged", self, "_on_any_damage", [0.08])
     minion.set_physics_process(game_started and not game_over)
+
+func _get_enemy_color_by_type(type: int) -> Color:
+    match type:
+        1: return Color(0.3, 0.7, 0.9, 1.0)  # 快速型 - 蓝色
+        2: return Color(0.7, 0.6, 0.3, 1.0)  # 坦克型 - 土黄
+        3: return Color(0.7, 0.3, 0.8, 1.0)  # 法师型 - 紫色
+        _: return Color(0.8, 0.3, 0.2, 1.0)  # 普通型 - 红色
 
 func _spawn_stage_minions() -> void:
     var extra_count = max(0, int(stage_cfg["enemy_count"]) - 1)
@@ -327,28 +447,58 @@ func _refresh_enemy_count() -> void:
             enemies_alive += 1
 
 func _apply_stage_config(cfg: Dictionary) -> void:
-    enemy.max_hp = int(cfg["enemy_hp"])
+    var diff_data = {} if difficulty_manager == null else difficulty_manager.get_difficulty_data()
+    var hp_scale = diff_data.get("enemy_hp_scale", 1.0) if difficulty_manager != null else 1.0
+    
+    # 设置敌人类型（根据关卡变化）
+    var chapter_id = int(cfg["chapter_id"])
+    var stage_id = int(cfg["stage_id"])
+    
+    # 设置敌人类型：根据章节决定
+    if enemy.has_node("EnemySprite"):
+        var enemy_sprite = enemy.get_node("EnemySprite")
+        if chapter_id <= 2:
+            enemy_sprite.enemy_type = 0  # 普通型
+        elif chapter_id <= 4:
+            enemy_sprite.enemy_type = 1 if randf() > 0.5 else 2  # 快速或坦克
+        elif chapter_id <= 6:
+            enemy_sprite.enemy_type = [1, 2, 3].pick_random()  # 多种类型
+        else:
+            enemy_sprite.enemy_type = [0, 1, 2, 3].pick_random()  # 混合
+    
+    enemy.max_hp = difficulty_manager.apply_to_enemy_hp(int(cfg["enemy_hp"])) if difficulty_manager != null else int(cfg["enemy_hp"])
     enemy.hp = enemy.max_hp
     enemy.move_speed = int(cfg["enemy_speed"])
-    enemy.attack_damage = max(1, int(cfg["boss_attack"]) - 1)
+    enemy.attack_damage = difficulty_manager.apply_to_enemy_damage(max(1, int(cfg["boss_attack"]) - 1)) if difficulty_manager != null else max(1, int(cfg["boss_attack"]) - 1)
 
-    boss.max_hp = int(cfg["boss_hp"])
+    # 设置 Boss 类型（根据章节）
+    if boss.has_node("BossSprite"):
+        var boss_sprite = boss.get_node("BossSprite")
+        boss_sprite.boss_id = chapter_id  # 章节对应 Boss ID
+        
+        # 根据章节设置 Boss 颜色
+        match chapter_id:
+            1: boss_sprite.color = Color(0.9, 0.3, 0.1, 1.0)  # 熔铁 - 橙红
+            2: boss_sprite.color = Color(0.6, 0.5, 0.3, 1.0)  # 岩脊 - 土黄
+            3: boss_sprite.color = Color(0.4, 0.7, 0.9, 1.0)  # 裂风 - 青蓝
+            4: boss_sprite.color = Color(0.3, 0.7, 0.3, 1.0)  # 疫藤 - 绿色
+            5: boss_sprite.color = Color(0.7, 0.7, 0.8, 1.0)  # 镜像 - 银灰
+            6: boss_sprite.color = Color(0.9, 0.9, 0.2, 1.0)  # 雷核 - 金黄
+            7: boss_sprite.color = Color(0.5, 0.8, 1.0, 1.0)  # 白霜 - 冰蓝
+            8: boss_sprite.color = Color(0.6, 0.4, 0.7, 1.0)  # 幕影 - 紫色
+            9: boss_sprite.color = Color(0.8, 0.5, 0.2, 1.0)  # 天陨 - 橙褐
+            10: boss_sprite.color = Color(0.9, 0.1, 0.2, 1.0)  # 终焉 - 深红
+    
+    boss.max_hp = difficulty_manager.apply_to_boss_hp(int(cfg["boss_hp"])) if difficulty_manager != null else int(cfg["boss_hp"])
     boss.hp = boss.max_hp
     boss.move_speed = int(cfg["boss_move"])
     boss.dash_speed = int(cfg["boss_dash"])
-    boss.attack_damage = int(cfg["boss_attack"])
+    boss.attack_damage = difficulty_manager.apply_to_boss_damage(int(cfg["boss_attack"])) if difficulty_manager != null else int(cfg["boss_attack"])
     boss.phase2_hp_ratio = float(cfg["boss_phase_ratio"])
     boss.summon_cooldown = float(cfg["boss_summon_cd"])
     boss.aoe_cooldown = float(cfg["boss_aoe_cd"])
 
     _set_boss_active(bool(cfg["boss_enabled"]))
-
-func _set_boss_active(active: bool) -> void:
-    boss_active = active
-    boss.visible = active
-    boss.set_physics_process(active and game_started and not game_over)
-    if boss_collision != null:
-        boss_collision.disabled = not active
 
 func _goto_next_stage() -> void:
     var total = CampaignData.total_stages()
@@ -356,6 +506,9 @@ func _goto_next_stage() -> void:
         info_text.text = "Campaign Completed - Press R to Restart"
         result_text.text = "All Chapters Cleared"
         result_panel.visible = true
+        # 检查完全体成就
+        if achievement_manager != null:
+            achievement_manager.check_full_upgrade(upgrades)
         return
 
     current_stage_index += 1
@@ -490,3 +643,81 @@ func _save_progress() -> void:
         "gold": gold,
         "upgrades": upgrades
     })
+
+func _on_achievement_unlocked(achievement_id: String) -> void:
+    var ach = achievement_manager.achievements[achievement_id]
+    info_text.text = "🏆 Achievement Unlocked: %s" % ach["name"]
+    yield(get_tree().create_timer(3.0), "timeout")
+    info_text.text = "Fight  Q Weapon  N Next  R Restart"
+
+func _on_drop_collected(value: int) -> void:
+    _set_score(score + value)
+    _set_gold(gold + value)
+    if achievement_manager != null:
+        achievement_manager.increment_gold(value)
+
+func _update_trap_spawning(delta: float) -> void:
+    trap_spawn_timer += delta
+    if trap_spawn_timer >= trap_spawn_interval:
+        trap_spawn_timer = 0
+        _spawn_random_trap()
+
+func _spawn_random_trap() -> void:
+    var trap_types = [0, 1, 2]  # 尖刺/落石/岩浆
+    var trap_type = trap_types[randi() % trap_types.size()]
+    
+    # 根据章节选择陷阱类型
+    var chapter_id = int(stage_cfg["chapter_id"])
+    if chapter_id <= 2:
+        trap_type = 0  # 早期只有尖刺
+    elif chapter_id <= 4:
+        trap_type = [0, 1].pick_random()  # 加入落石
+    else:
+        trap_type = [0, 1, 2].pick_random()  # 全部类型
+    
+    var trap = preload("res://scripts/TrapSystem.gd").new()
+    trap.trap_type = trap_type
+    trap.damage = max(1, int(stage_cfg["enemy_speed"]) / 30)  # 伤害随关卡增加
+    trap.name = "Trap_%d" % randi()
+    
+    # 随机生成位置
+    var trap_x = rand_range(200, 1000)
+    var trap_y = 580 if trap_type == 0 else 30 if trap_type == 1 else 600
+    
+    trap.position = Vector2(trap_x, trap_y)
+    
+    # 添加碰撞体
+    var area = Area2D.new()
+    var col = CollisionShape2D.new()
+    
+    if trap_type == 0:  # 尖刺
+        var rect = RectangleShape2D.new()
+        rect.extents = Vector2(100, 15)
+        col.shape = rect
+        trap.add_child(area)
+        area.add_child(col)
+        area.connect("body_entered", trap, "_on_body_entered")
+        area.connect("body_exited", trap, "_on_body_exited")
+    elif trap_type == 1:  # 落石
+        var circle = CircleShape2D.new()
+        circle.radius = 40
+        col.shape = circle
+        trap.add_child(area)
+        area.add_child(col)
+        area.connect("body_entered", trap, "_on_body_entered")
+        area.connect("body_exited", trap, "_on_body_exited")
+    elif trap_type == 2:  # 岩浆
+        var rect = RectangleShape2D.new()
+        rect.extents = Vector2(400, 20)
+        col.shape = rect
+        trap.add_child(area)
+        area.add_child(col)
+        area.connect("body_entered", trap, "_on_body_entered")
+        area.connect("body_exited", trap, "_on_body_exited")
+    
+    add_child(trap)
+    
+    # 20 秒后清理陷阱
+    yield(get_tree().create_timer(20.0), "timeout")
+    if trap.is_inside_tree():
+        trap.queue_free()

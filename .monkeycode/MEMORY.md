@@ -141,3 +141,22 @@ Agent 在任务执行过程中发现的条目应遵循以下格式：
 - Instructions:
   - Godot3 中字符串对象不支持直接调用 join，需使用 PoolStringArray(lines).join("\n")
   - 长文本 UI 组装建议先累积数组再统一 join，便于维护和兼容旧版本脚本运行时
+
+[Godot3 无窗口环境导出 Windows EXE 完整流程]
+- Date: 2026-04-21
+- Context: Agent 在完成完整战役版游戏构建时发现
+- Category: 构建方法
+- Instructions:
+  - 在 Linux 无图形环境下，使用 xvfb-run 包装 godot3 命令进行导出
+  - 命令：xvfb-run -a godot3 --path <project> --export "Windows Desktop" <output.exe>
+  - 需预先安装导出模板到 /root/.local/share/godot/templates/3.2.3.stable/
+  - 导出产物包括 .exe (主程序) 和 .pck (资源包) 两个文件
+
+[完整战役版游戏已交付]
+- Date: 2026-04-21
+- Context: 用户要求“继续完成游戏全部”
+- Instructions:
+  - 游戏已完成全部开发并导出 Windows 可执行文件
+  - 包含 10 章 28 个关卡的完整战役
+  - Boss 战、装备切换、商店升级、进度存档等系统全部实装
+  - 构建产物位于 godot-game/Builds/Windows/SideScrollerFighter.exe
